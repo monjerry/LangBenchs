@@ -1,13 +1,18 @@
+"""CLI benchmark runner for comparing language performance across different tasks."""
+
 import subprocess
 import time
 import os
+
 import click
 
 from html_report import generate_html
 
-BASE = os.path.dirname(os.path.abspath(__file__))
+BASE: str = os.path.dirname(os.path.abspath(__file__))
 
-BENCHMARKS = {
+# Each benchmark maps language -> { "compile": cmd | None, "run": cmd }.
+# "compile" is None for interpreted languages.
+BENCHMARKS: dict[str, dict[str, dict[str, list[str] | None]]] = {
     "for_loop": {
         "c++": {
             "compile": ["g++", "-O2", "-o", os.path.join(BASE, "c++", "build", "for_loop"), os.path.join(BASE, "c++", "for_loop.cpp")],
@@ -36,9 +41,20 @@ BENCHMARKS = {
     },
 }
 
-LANGUAGES = sorted(next(iter(BENCHMARKS.values())).keys())
+LANGUAGES: list[str] = sorted(next(iter(BENCHMARKS.values())).keys())
 
-def compile_benchmark(name, language):
+
+def compile_benchmark(name: str, language: str) -> None:
+    """Compile a benchmark for a given language.
+
+    Creates the per-language build/ directory if it does not exist, then runs
+    the compile command defined in BENCHMARKS.  Does nothing for interpreted
+    languages (where compile is None).
+
+    Args:
+        name: The benchmark name (key in BENCHMARKS).
+        language: The language to compile (e.g. "c++", "rust").
+    """
     cmd = BENCHMARKS[name][language]["compile"]
     if cmd is None:
         return
@@ -47,7 +63,16 @@ def compile_benchmark(name, language):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def run_benchmark(name, language):
+def run_benchmark(name: str, language: str) -> float:
+    """Execute a benchmark and return the elapsed wall-clock time in seconds.
+
+    Args:
+        name: The benchmark name (key in BENCHMARKS).
+        language: The language to run (e.g. "python", "go").
+
+    Returns:
+        Elapsed time in seconds measured via time.perf_counter().
+    """
     cmd = BENCHMARKS[name][language]["run"]
     start = time.perf_counter()
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -55,7 +80,7 @@ def run_benchmark(name, language):
 
 
 @click.group()
-def cli():
+def cli() -> None:
     """Language benchmark runner."""
 
 
@@ -87,13 +112,13 @@ def cli():
     default=False,
     help="Exclude the first run from averages and the HTML report (useful to drop cold-start).",
 )
-def for_loop(languages, runs, html_output, skip_first):
+def for_loop(languages: tuple[str, ...], runs: int, html_output: str | None, skip_first: bool) -> None:
     """Benchmark: for loop (10 000 000 iterations)."""
     if skip_first and runs < 2:
         raise click.UsageError("--skip-first requires --runs >= 2")
 
-    selected = [l.lower() for l in languages] if languages else LANGUAGES
-    results = {}
+    selected: list[str] = [l.lower() for l in languages] if languages else LANGUAGES
+    results: dict[str, list[float]] = {}
 
     click.echo("\nCompiling...")
     for lang in selected:
@@ -102,15 +127,15 @@ def for_loop(languages, runs, html_output, skip_first):
 
     click.echo("Running benchmarks...")
     for lang in selected:
-        times = []
+        times: list[float] = []
         for _ in range(runs):
             times.append(run_benchmark("for_loop", lang))
         results[lang] = times
     click.echo("Done.\n")
 
     # measured excludes run 1 when --skip-first is set; used for sorting, averages, and HTML
-    measured = {l: t[1:] if skip_first else t for l, t in results.items()}
-    sorted_langs = sorted(measured, key=lambda l: sum(measured[l]) / len(measured[l]))
+    measured: dict[str, list[float]] = {l: t[1:] if skip_first else t for l, t in results.items()}
+    sorted_langs: list[str] = sorted(measured, key=lambda l: sum(measured[l]) / len(measured[l]))
 
     click.echo(f"{'Language':<10} {'Run':<5} {'Time (s)':<12}")
     click.echo("-" * 30)
