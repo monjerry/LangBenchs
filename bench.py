@@ -81,8 +81,17 @@ def cli():
     type=click.Path(dir_okay=False, writable=True),
     help="If set, write an HTML report with a chart to this path.",
 )
-def for_loop(languages, runs, html_output):
+@click.option(
+    "--skip-first",
+    is_flag=True,
+    default=False,
+    help="Exclude the first run from averages and the HTML report (useful to drop cold-start).",
+)
+def for_loop(languages, runs, html_output, skip_first):
     """Benchmark: for loop (10 000 000 iterations)."""
+    if skip_first and runs < 2:
+        raise click.UsageError("--skip-first requires --runs >= 2")
+
     selected = [l.lower() for l in languages] if languages else LANGUAGES
     results = {}
 
@@ -99,26 +108,29 @@ def for_loop(languages, runs, html_output):
         results[lang] = times
     click.echo("Done.\n")
 
-    sorted_langs = sorted(results, key=lambda l: sum(results[l]) / len(results[l]))
+    # measured excludes run 1 when --skip-first is set; used for sorting, averages, and HTML
+    measured = {l: t[1:] if skip_first else t for l, t in results.items()}
+    sorted_langs = sorted(measured, key=lambda l: sum(measured[l]) / len(measured[l]))
 
     click.echo(f"{'Language':<10} {'Run':<5} {'Time (s)':<12}")
     click.echo("-" * 30)
     for lang in sorted_langs:
         for r, elapsed in enumerate(results[lang], 1):
-            click.echo(f"{lang:<10} {r:<5} {elapsed:<12.4f}")
+            suffix = " (skipped)" if skip_first and r == 1 else ""
+            click.echo(f"{lang:<10} {r:<5} {elapsed:<12.4f}{suffix}")
 
-    if runs > 1:
+    if len(measured[sorted_langs[0]]) > 1:
         click.echo("\n" + "-" * 30)
         click.echo(f"{'Language':<10} {'Avg (s)':<12}")
         click.echo("-" * 30)
         for lang in sorted_langs:
-            avg = sum(results[lang]) / len(results[lang])
+            avg = sum(measured[lang]) / len(measured[lang])
             click.echo(f"{lang:<10} {avg:<12.4f}")
 
     click.echo()
 
     if html_output:
-        generate_html("for_loop", results, sorted_langs, html_output)
+        generate_html("for_loop", measured, sorted_langs, html_output)
         click.echo(f"HTML report written to {html_output}")
 
 
