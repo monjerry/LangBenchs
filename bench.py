@@ -1,8 +1,9 @@
 import subprocess
 import time
 import os
-
 import click
+
+from html_report import generate_html
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 
@@ -36,7 +37,6 @@ BENCHMARKS = {
 }
 
 LANGUAGES = sorted(next(iter(BENCHMARKS.values())).keys())
-
 
 def compile_benchmark(name, language):
     cmd = BENCHMARKS[name][language]["compile"]
@@ -72,9 +72,16 @@ def cli():
     "-r",
     default=1,
     show_default=True,
-    help="Number of times to run each benchmark.",
+    help="Number of measured runs (a warm-up run is always done first).",
 )
-def for_loop(languages, runs):
+@click.option(
+    "--html",
+    "html_output",
+    default=None,
+    type=click.Path(dir_okay=False, writable=True),
+    help="If set, write an HTML report with a chart to this path.",
+)
+def for_loop(languages, runs, html_output):
     """Benchmark: for loop (10 000 000 iterations)."""
     selected = [l.lower() for l in languages] if languages else LANGUAGES
     results = {}
@@ -86,7 +93,6 @@ def for_loop(languages, runs):
 
     click.echo("Running benchmarks...")
     for lang in selected:
-        run_benchmark("for_loop", lang)  # warm-up run, not measured
         times = []
         for _ in range(runs):
             times.append(run_benchmark("for_loop", lang))
@@ -110,6 +116,10 @@ def for_loop(languages, runs):
             click.echo(f"{lang:<10} {avg:<12.4f}")
 
     click.echo()
+
+    if html_output:
+        generate_html("for_loop", results, sorted_langs, html_output)
+        click.echo(f"HTML report written to {html_output}")
 
 
 if __name__ == "__main__":
