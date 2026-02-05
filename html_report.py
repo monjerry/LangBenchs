@@ -39,6 +39,49 @@ def _build_datasets(results: dict[str, list[float]], sorted_langs: list[str], co
     return json.dumps(datasets)
 
 
+def _build_per_language_charts(results: dict[str, list[float]], sorted_langs: list[str]) -> str:
+    """Build HTML and JS for one chart per language, each showing its individual runs.
+
+    Returns the HTML snippet containing the chart grid and all inline Chart.js
+    initialization scripts. Each chart uses the language's brand color.
+    """
+    canvases: list[str] = []
+    scripts: list[str] = []
+
+    for lang in sorted_langs:
+        color = LANG_COLORS.get(lang, "#999999")
+        run_labels = [f"Run {r}" for r in range(1, len(results[lang]) + 1)]
+        canvases.append(f'<div class="lang-chart"><canvas id="chart-{lang}"></canvas></div>')
+        scripts.append(f"""
+new Chart(document.getElementById("chart-{lang}").getContext("2d"), {{
+  type: "bar",
+  data: {{
+    labels: {json.dumps(run_labels)},
+    datasets: [{{
+      label: "{lang}",
+      data: {json.dumps([round(t, 4) for t in results[lang]])},
+      backgroundColor: "{color}cc",
+      borderColor: "{color}",
+      borderWidth: 1,
+    }}],
+  }},
+  options: {{
+    responsive: true,
+    plugins: {{
+      legend: {{ display: false }},
+      title: {{ display: true, text: "{lang}", font: {{ size: 15, weight: "bold" }} }},
+    }},
+    scales: {{
+      y: {{ beginAtZero: true, title: {{ display: true, text: "Time (s)" }} }} ,
+    }},
+  }},
+}});""")
+
+    grid_html = "\n".join(canvases)
+    scripts_js = "\n".join(scripts)
+    return f'<div class="lang-grid">\n{grid_html}\n</div>\n<script>\n{scripts_js}\n</script>'
+
+
 def generate_html(benchmark_name: str, results: dict[str, list[float]], sorted_langs: list[str], output_path: str) -> None:
     """Generate a self-contained HTML file with a bar chart of the benchmark results.
 
@@ -52,6 +95,7 @@ def generate_html(benchmark_name: str, results: dict[str, list[float]], sorted_l
     datasets_js = _build_datasets(results, sorted_langs, colors)
     num_runs = len(next(iter(results.values())))
     show_legend = "true" if num_runs > 1 else "false"
+    per_lang_html = _build_per_language_charts(results, sorted_langs)
 
     html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -75,6 +119,18 @@ def generate_html(benchmark_name: str, results: dict[str, list[float]], sorted_l
     border-radius: 8px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
     padding: 24px;
+  }}
+  h2 {{ text-align: center; margin-top: 48px; }}
+  .lang-grid {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }}
+  .lang-chart {{
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    padding: 16px;
   }}
 </style>
 </head>
@@ -110,6 +166,8 @@ new Chart(ctx, {{
   }},
 }});
 </script>
+<h2>Per Language</h2>
+{per_lang_html}
 </body>
 </html>"""
 
