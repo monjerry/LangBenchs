@@ -39,6 +39,32 @@ BENCHMARKS: dict[str, dict[str, dict[str, list[str] | None]]] = {
             "run": [os.path.join(BASE, "rust", "build", "for_loop")],
         },
     },
+    "monte_carlo": {
+        "c++": {
+            "compile": ["g++", "-O2", "-o", os.path.join(BASE, "c++", "build", "monte_carlo"), os.path.join(BASE, "c++", "monte_carlo.cpp")],
+            "run": [os.path.join(BASE, "c++", "build", "monte_carlo")],
+        },
+        "go": {
+            "compile": ["go", "build", "-o", os.path.join(BASE, "go", "build", "monte_carlo"), os.path.join(BASE, "go", "monte_carlo.go")],
+            "run": [os.path.join(BASE, "go", "build", "monte_carlo")],
+        },
+        "java": {
+            "compile": ["javac", "-d", os.path.join(BASE, "java", "build"), os.path.join(BASE, "java", "MonteCarlo.java")],
+            "run": ["java", "-cp", os.path.join(BASE, "java", "build"), "MonteCarlo"],
+        },
+        "node": {
+            "compile": None,
+            "run": ["node", os.path.join(BASE, "node", "monte_carlo.js")],
+        },
+        "python": {
+            "compile": None,
+            "run": ["python3", os.path.join(BASE, "python", "monte_carlo.py")],
+        },
+        "rust": {
+            "compile": ["rustc", "-O", "-o", os.path.join(BASE, "rust", "build", "monte_carlo"), os.path.join(BASE, "rust", "monte_carlo.rs")],
+            "run": [os.path.join(BASE, "rust", "build", "monte_carlo")],
+        },
+    },
 }
 
 LANGUAGES: list[str] = sorted(next(iter(BENCHMARKS.values())).keys())
@@ -79,41 +105,20 @@ def run_benchmark(name: str, language: str) -> float:
     return time.perf_counter() - start
 
 
-@click.group()
-def cli() -> None:
-    """Language benchmark runner."""
+def _execute_benchmark(benchmark_name: str, languages: tuple[str, ...], runs: int, html_output: str | None, skip_first: bool) -> None:
+    """Compile, run, display, and optionally export a benchmark.
 
+    Shared implementation used by every benchmark CLI command.  Handles
+    compilation, timed execution, terminal output (sorted fastest-first),
+    optional first-run exclusion, and HTML report generation.
 
-@cli.command()
-@click.option(
-    "--languages",
-    "-l",
-    multiple=True,
-    type=click.Choice(LANGUAGES, case_sensitive=False),
-    help="Languages to benchmark. Defaults to all.",
-)
-@click.option(
-    "--runs",
-    "-r",
-    default=1,
-    show_default=True,
-    help="Number of measured runs (a warm-up run is always done first).",
-)
-@click.option(
-    "--html",
-    "html_output",
-    default=None,
-    type=click.Path(dir_okay=False, writable=True),
-    help="If set, write an HTML report with a chart to this path.",
-)
-@click.option(
-    "--skip-first",
-    is_flag=True,
-    default=False,
-    help="Exclude the first run from averages and the HTML report (useful to drop cold-start).",
-)
-def for_loop(languages: tuple[str, ...], runs: int, html_output: str | None, skip_first: bool) -> None:
-    """Benchmark: for loop (10 000 000 iterations)."""
+    Args:
+        benchmark_name: Key in BENCHMARKS (e.g. "for_loop", "monte_carlo").
+        languages: Languages selected on the command line (empty = all).
+        runs: Number of timed executions per language.
+        html_output: Optional file path for the HTML report.
+        skip_first: When True, exclude run 1 from averages and the report.
+    """
     if skip_first and runs < 2:
         raise click.UsageError("--skip-first requires --runs >= 2")
 
@@ -122,14 +127,14 @@ def for_loop(languages: tuple[str, ...], runs: int, html_output: str | None, ski
 
     click.echo("\nCompiling...")
     for lang in selected:
-        compile_benchmark("for_loop", lang)
+        compile_benchmark(benchmark_name, lang)
     click.echo("Done.\n")
 
     click.echo("Running benchmarks...")
     for lang in selected:
         times: list[float] = []
         for _ in range(runs):
-            times.append(run_benchmark("for_loop", lang))
+            times.append(run_benchmark(benchmark_name, lang))
         results[lang] = times
     click.echo("Done.\n")
 
@@ -155,8 +160,44 @@ def for_loop(languages: tuple[str, ...], runs: int, html_output: str | None, ski
     click.echo()
 
     if html_output:
-        generate_html("for_loop", measured, sorted_langs, html_output)
+        generate_html(benchmark_name, measured, sorted_langs, html_output)
         click.echo(f"HTML report written to {html_output}")
+
+
+# ---------------------------------------------------------------------------
+# Shared click options, applied to every benchmark command
+# ---------------------------------------------------------------------------
+
+def _benchmark_options(func):  # type: ignore[no-untyped-def]
+    """Decorator that attaches the standard set of click options to a command."""
+    func = click.option("--skip-first", is_flag=True, default=False, help="Exclude the first run from averages and the HTML report (useful to drop cold-start).")(func)
+    func = click.option("--html", "html_output", default=None, type=click.Path(dir_okay=False, writable=True), help="Write an HTML report with a chart to this path.")(func)
+    func = click.option("--runs", "-r", default=1, show_default=True, help="Number of measured runs.")(func)
+    func = click.option("--languages", "-l", multiple=True, type=click.Choice(LANGUAGES, case_sensitive=False), help="Languages to benchmark. Defaults to all.")(func)
+    return func
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+@click.group()
+def cli() -> None:
+    """Language benchmark runner."""
+
+
+@cli.command()
+@_benchmark_options
+def for_loop(languages: tuple[str, ...], runs: int, html_output: str | None, skip_first: bool) -> None:
+    """Benchmark: for loop (10 000 000 iterations)."""
+    _execute_benchmark("for_loop", languages, runs, html_output, skip_first)
+
+
+@cli.command()
+@_benchmark_options
+def monte_carlo(languages: tuple[str, ...], runs: int, html_output: str | None, skip_first: bool) -> None:
+    """Benchmark: Monte Carlo pi estimation (10 000 000 samples)."""
+    _execute_benchmark("monte_carlo", languages, runs, html_output, skip_first)
 
 
 if __name__ == "__main__":
